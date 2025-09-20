@@ -37,6 +37,10 @@
 #include "util/mutexlock.h"
 #include "util/thread_local.h"
 
+#if defined(OS_ANDROID)
+#include <sys/mman.h>
+#endif
+
 // For non linux platform, the following macros are used only as place
 // holder.
 #if !(defined OS_LINUX) && !(defined OS_FREEBSD) && !(defined CYGWIN) && \
@@ -52,6 +56,24 @@
 #define POSIX_MADV_SEQUENTIAL 2 /* [MC1] expect sequential page refs */
 #define POSIX_MADV_WILLNEED 3   /* [MC1] will need these pages */
 #define POSIX_MADV_DONTNEED 4   /* [MC1] don't need these pages */
+#endif
+
+#if defined(OS_ANDROID)
+#ifndef POSIX_MADV_NORMAL
+#define POSIX_MADV_NORMAL MADV_NORMAL
+#endif
+#ifndef POSIX_MADV_RANDOM
+#define POSIX_MADV_RANDOM MADV_RANDOM
+#endif
+#ifndef POSIX_MADV_SEQUENTIAL
+#define POSIX_MADV_SEQUENTIAL MADV_SEQUENTIAL
+#endif
+#ifndef POSIX_MADV_WILLNEED
+#define POSIX_MADV_WILLNEED MADV_WILLNEED
+#endif
+#ifndef POSIX_MADV_DONTNEED
+#define POSIX_MADV_DONTNEED MADV_DONTNEED
+#endif
 #endif
 
 namespace ROCKSDB_NAMESPACE {
