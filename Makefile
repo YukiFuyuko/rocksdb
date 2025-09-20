@@ -91,16 +91,18 @@ $(info $$DEBUG_LEVEL is $(DEBUG_LEVEL), $$LIB_MODE is $(LIB_MODE))
 # Detect what platform we're building on.
 # Export some common variables that might have been passed as Make variables
 # instead of environment variables.
-dummy := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; \
-                  export CXXFLAGS="$(EXTRA_CXXFLAGS)"; \
-                  export LDFLAGS="$(EXTRA_LDFLAGS)"; \
-                  export COMPILE_WITH_ASAN="$(COMPILE_WITH_ASAN)"; \
-                  export COMPILE_WITH_TSAN="$(COMPILE_WITH_TSAN)"; \
-                  export COMPILE_WITH_UBSAN="$(COMPILE_WITH_UBSAN)"; \
-                  export PORTABLE="$(PORTABLE)"; \
-                  export ROCKSDB_NO_FBCODE="$(ROCKSDB_NO_FBCODE)"; \
-                  export USE_CLANG="$(USE_CLANG)"; \
-                  export LIB_MODE="$(LIB_MODE)"; \
+	dummy := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; \
+	                  export CXXFLAGS="$(EXTRA_CXXFLAGS)"; \
+	                  export LDFLAGS="$(EXTRA_LDFLAGS)"; \
+	                  export COMPILE_WITH_ASAN="$(COMPILE_WITH_ASAN)"; \
+	                  export COMPILE_WITH_TSAN="$(COMPILE_WITH_TSAN)"; \
+	                  export COMPILE_WITH_UBSAN="$(COMPILE_WITH_UBSAN)"; \
+	                  export PORTABLE="$(PORTABLE)"; \
+	                  export ROCKSDB_NO_FBCODE="$(ROCKSDB_NO_FBCODE)"; \
+	                  export USE_CLANG="$(USE_CLANG)"; \
+	                  export LIB_MODE="$(LIB_MODE)"; \
+		          export TARGET_OS="$(TARGET_OS)"; \
+		          export PLATFORM="$(PLATFORM)"; \
 		  export ROCKSDB_CXX_STANDARD="$(ROCKSDB_CXX_STANDARD)"; \
 		  export USE_FOLLY="$(USE_FOLLY)"; \
 		  export USE_FOLLY_LITE="$(USE_FOLLY_LITE)"; \
