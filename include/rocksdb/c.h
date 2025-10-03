@@ -82,6 +82,7 @@ typedef struct rocksdb_hyper_clock_cache_options_t
 typedef struct rocksdb_cache_t rocksdb_cache_t;
 typedef struct rocksdb_write_buffer_manager_t rocksdb_write_buffer_manager_t;
 typedef struct rocksdb_sst_file_manager_t rocksdb_sst_file_manager_t;
+typedef struct rocksdb_sstfilereader_t rocksdb_sstfilereader_t;
 typedef struct rocksdb_compactionfilter_t rocksdb_compactionfilter_t;
 typedef struct rocksdb_compactionfiltercontext_t
     rocksdb_compactionfiltercontext_t;
@@ -154,6 +155,7 @@ typedef struct rocksdb_eventlistener_t rocksdb_eventlistener_t;
 typedef struct rocksdb_writestallinfo_t rocksdb_writestallinfo_t;
 typedef struct rocksdb_writestallcondition_t rocksdb_writestallcondition_t;
 typedef struct rocksdb_memtableinfo_t rocksdb_memtableinfo_t;
+typedef struct rocksdb_tableproperties_t rocksdb_tableproperties_t;
 
 /* DB operations */
 
@@ -2663,6 +2665,21 @@ extern ROCKSDB_LIBRARY_API void rocksdb_create_dir_if_missing(
 
 /* SstFile */
 
+extern ROCKSDB_LIBRARY_API rocksdb_sstfilereader_t*
+rocksdb_sstfilereader_create(const rocksdb_options_t* options);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilereader_destroy(
+    rocksdb_sstfilereader_t* reader);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilereader_open(
+    rocksdb_sstfilereader_t* reader, const char* name, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilereader_verify_checksum(
+    rocksdb_sstfilereader_t* reader, char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
+rocksdb_sstfilereader_new_iterator(rocksdb_sstfilereader_t* reader,
+                                   const rocksdb_readoptions_t* options);
+extern ROCKSDB_LIBRARY_API rocksdb_tableproperties_t*
+rocksdb_sstfilereader_get_table_properties(rocksdb_sstfilereader_t* reader,
+                                           char** errptr);
+
 extern ROCKSDB_LIBRARY_API rocksdb_sstfilewriter_t*
 rocksdb_sstfilewriter_create(const rocksdb_envoptions_t* env,
                              const rocksdb_options_t* io_options);
@@ -2700,6 +2717,48 @@ extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_file_size(
     rocksdb_sstfilewriter_t* writer, uint64_t* file_size);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_destroy(
     rocksdb_sstfilewriter_t* writer);
+
+/* Table Properties */
+
+extern ROCKSDB_LIBRARY_API void rocksdb_tableproperties_destroy(
+    rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_tableproperties_get_data_size(const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_tableproperties_get_index_size(const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_tableproperties_get_filter_size(const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_tableproperties_get_raw_key_size(
+    const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_tableproperties_get_raw_value_size(
+    const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_tableproperties_get_num_data_blocks(
+    const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_tableproperties_get_num_entries(const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_tableproperties_get_num_deletions(
+    const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_tableproperties_get_num_range_deletions(
+    const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_tableproperties_get_num_merge_operands(
+    const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_tableproperties_get_format_version(
+    const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_tableproperties_get_fixed_key_len(
+    const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_tableproperties_get_column_family_id(
+    const rocksdb_tableproperties_t* props);
+extern ROCKSDB_LIBRARY_API char* rocksdb_tableproperties_get_column_family_name(
+    const rocksdb_tableproperties_t* props, size_t* len);
+extern ROCKSDB_LIBRARY_API char* rocksdb_tableproperties_get_comparator_name(
+    const rocksdb_tableproperties_t* props, size_t* len);
+extern ROCKSDB_LIBRARY_API char* rocksdb_tableproperties_get_filter_policy_name(
+    const rocksdb_tableproperties_t* props, size_t* len);
+extern ROCKSDB_LIBRARY_API char* rocksdb_tableproperties_to_string(
+    const rocksdb_tableproperties_t* props);
 extern ROCKSDB_LIBRARY_API rocksdb_ingestexternalfileoptions_t*
 rocksdb_ingestexternalfileoptions_create(void);
 extern ROCKSDB_LIBRARY_API void
