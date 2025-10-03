@@ -1703,10 +1703,13 @@ int main(int argc, char** argv) {
     rocksdb_iterator_t* base_iter = rocksdb_create_iterator(db, iter_roptions);
     rocksdb_writebatch_wi_t* wbi = rocksdb_writebatch_wi_create(0, 1);
     rocksdb_writebatch_wi_put(wbi, "bar", 3, "b",
-                              1);  // should get filtered out
-    rocksdb_writebatch_wi_put(wbi, "cat", 3, "miau", 4);
+                              1, &err);  // should get filtered out
+    CheckNoError(err);
+    rocksdb_writebatch_wi_put(wbi, "cat", 3, "miau", 4, &err);
+    CheckNoError(err);
     rocksdb_writebatch_wi_put(wbi, "gnu", 3, "muh",
-                              3);  // should get filtered out
+                              3, &err);  // should get filtered out
+    CheckNoError(err);
     rocksdb_iterator_t* iter =
         rocksdb_writebatch_wi_create_iterator_with_base_readopts(wbi, base_iter,
                                                                  iter_roptions);
@@ -2276,10 +2279,14 @@ int main(int argc, char** argv) {
     // Test WriteBatchWithIndex iteration with Column Family
     rocksdb_writebatch_wi_t* wbwi = rocksdb_writebatch_wi_create(0, true);
     rocksdb_writebatch_wi_put_cf(wbwi, handles[1], "boat", 4, "row",
-                                 3);  // should be filtered out
-    rocksdb_writebatch_wi_put_cf(wbwi, handles[1], "buffy", 5, "charmed", 7);
+                                 3, &err);  // should be filtered out
+    CheckNoError(err);
+    rocksdb_writebatch_wi_put_cf(wbwi, handles[1], "buffy", 5, "charmed", 7,
+                                 &err);
+    CheckNoError(err);
     rocksdb_writebatch_wi_put_cf(wbwi, handles[1], "bus", 3, "yellow",
-                                 6);  // should be filtered out
+                                 6, &err);  // should be filtered out
+    CheckNoError(err);
     rocksdb_readoptions_t* iter_roptions = rocksdb_readoptions_create();
     rocksdb_readoptions_set_iterate_lower_bound(iter_roptions, "bu", 2);
     rocksdb_readoptions_set_iterate_upper_bound(iter_roptions, "buffz", 5);
