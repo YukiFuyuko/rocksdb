@@ -32,9 +32,11 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
@@ -126,10 +128,12 @@ using ROCKSDB_NAMESPACE::SliceTransform;
 using ROCKSDB_NAMESPACE::Snapshot;
 using ROCKSDB_NAMESPACE::SstFileManager;
 using ROCKSDB_NAMESPACE::SstFileMetaData;
+using ROCKSDB_NAMESPACE::SstFileReader;
 using ROCKSDB_NAMESPACE::SstFileWriter;
 using ROCKSDB_NAMESPACE::Status;
 using ROCKSDB_NAMESPACE::StderrLogger;
 using ROCKSDB_NAMESPACE::SubcompactionJobInfo;
+using ROCKSDB_NAMESPACE::TableProperties;
 using ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory;
 using ROCKSDB_NAMESPACE::Transaction;
 using ROCKSDB_NAMESPACE::TransactionDB;
@@ -278,6 +282,12 @@ struct rocksdb_ingestexternalfileoptions_t {
 };
 struct rocksdb_sstfilewriter_t {
   SstFileWriter* rep;
+};
+struct rocksdb_sstfilereader_t {
+  SstFileReader* rep;
+};
+struct rocksdb_tableproperties_t {
+  std::shared_ptr<const TableProperties> rep;
 };
 struct rocksdb_ratelimiter_t {
   std::shared_ptr<RateLimiter> rep;
@@ -6221,6 +6231,193 @@ rocksdb_envoptions_t* rocksdb_envoptions_create() {
 }
 
 void rocksdb_envoptions_destroy(rocksdb_envoptions_t* opt) { delete opt; }
+
+rocksdb_sstfilereader_t* rocksdb_sstfilereader_create(
+    const rocksdb_options_t* options) {
+  rocksdb_sstfilereader_t* reader = new rocksdb_sstfilereader_t;
+  reader->rep = new SstFileReader(options->rep);
+  return reader;
+}
+
+void rocksdb_sstfilereader_destroy(rocksdb_sstfilereader_t* reader) {
+  delete reader->rep;
+  delete reader;
+}
+
+void rocksdb_sstfilereader_open(rocksdb_sstfilereader_t* reader,
+                                const char* name, char** errptr) {
+  SaveError(errptr, reader->rep->Open(std::string(name)));
+}
+
+void rocksdb_sstfilereader_verify_checksum(rocksdb_sstfilereader_t* reader,
+                                           char** errptr) {
+  SaveError(errptr, reader->rep->VerifyChecksum());
+}
+
+rocksdb_iterator_t* rocksdb_sstfilereader_new_iterator(
+    rocksdb_sstfilereader_t* reader, const rocksdb_readoptions_t* options) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = reader->rep->NewIterator(options->rep);
+  return result;
+}
+
+rocksdb_tableproperties_t* rocksdb_sstfilereader_get_table_properties(
+    rocksdb_sstfilereader_t* reader, char** errptr) {
+  std::shared_ptr<const TableProperties> props =
+      reader->rep->GetTableProperties();
+  if (!props) {
+    SaveError(errptr,
+              Status::InvalidArgument("table properties not available"));
+    return nullptr;
+  }
+  rocksdb_tableproperties_t* result = new rocksdb_tableproperties_t;
+  result->rep = props;
+  return result;
+}
+
+namespace {
+const TableProperties* GetTableProperties(
+    const rocksdb_tableproperties_t* props) {
+  return (props != nullptr && props->rep != nullptr) ? props->rep.get()
+                                                     : nullptr;
+}
+}  // namespace
+
+void rocksdb_tableproperties_destroy(rocksdb_tableproperties_t* props) {
+  delete props;
+}
+
+uint64_t rocksdb_tableproperties_get_data_size(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->data_size : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_index_size(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->index_size : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_filter_size(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->filter_size : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_raw_key_size(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->raw_key_size : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_raw_value_size(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->raw_value_size : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_num_data_blocks(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->num_data_blocks : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_num_entries(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->num_entries : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_num_deletions(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->num_deletions : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_num_range_deletions(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->num_range_deletions : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_num_merge_operands(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->num_merge_operands : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_format_version(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->format_version : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_fixed_key_len(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->fixed_key_len : 0;
+}
+
+uint64_t rocksdb_tableproperties_get_column_family_id(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->column_family_id : 0;
+}
+
+char* rocksdb_tableproperties_get_column_family_name(
+    const rocksdb_tableproperties_t* props, size_t* len) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  if (len != nullptr) {
+    *len = tp->column_family_name.size();
+  }
+  return CopyString(tp->column_family_name);
+}
+
+char* rocksdb_tableproperties_get_comparator_name(
+    const rocksdb_tableproperties_t* props, size_t* len) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  if (len != nullptr) {
+    *len = tp->comparator_name.size();
+  }
+  return CopyString(tp->comparator_name);
+}
+
+char* rocksdb_tableproperties_get_filter_policy_name(
+    const rocksdb_tableproperties_t* props, size_t* len) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  if (len != nullptr) {
+    *len = tp->filter_policy_name.size();
+  }
+  return CopyString(tp->filter_policy_name);
+}
+
+char* rocksdb_tableproperties_to_string(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    return nullptr;
+  }
+  return CopyString(tp->ToString());
+}
 
 rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create(
     const rocksdb_envoptions_t* env, const rocksdb_options_t* io_options) {
