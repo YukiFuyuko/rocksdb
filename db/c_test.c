@@ -1191,6 +1191,41 @@ int main(int argc, char** argv) {
     rocksdb_sstfilewriter_finish(writer, &err);
     CheckNoError(err);
 
+    rocksdb_sstfilereader_t* reader = rocksdb_sstfilereader_create(options);
+    rocksdb_sstfilereader_open(reader, sstfilename, &err);
+    CheckNoError(err);
+    rocksdb_sstfilereader_verify_checksum(reader, &err);
+    CheckNoError(err);
+
+    rocksdb_iterator_t* file_iter =
+        rocksdb_sstfilereader_new_iterator(reader, roptions);
+    rocksdb_iter_seek_to_first(file_iter);
+    CheckCondition(rocksdb_iter_valid(file_iter));
+    CheckIter(file_iter, "sstk1", "v1");
+    rocksdb_iter_next(file_iter);
+    CheckCondition(rocksdb_iter_valid(file_iter));
+    CheckIter(file_iter, "sstk2", "v2");
+    rocksdb_iter_next(file_iter);
+    CheckCondition(rocksdb_iter_valid(file_iter));
+    CheckIter(file_iter, "sstk3", "v3");
+    rocksdb_iter_next(file_iter);
+    CheckCondition(!rocksdb_iter_valid(file_iter));
+    rocksdb_iter_destroy(file_iter);
+
+    rocksdb_tableproperties_t* props =
+        rocksdb_sstfilereader_get_table_properties(reader, &err);
+    CheckNoError(err);
+    CheckCondition(rocksdb_tableproperties_get_num_entries(props) == 3);
+    CheckCondition(rocksdb_tableproperties_get_num_deletions(props) == 0);
+    CheckCondition(rocksdb_tableproperties_get_num_range_deletions(props) == 0);
+    CheckCondition(rocksdb_tableproperties_get_raw_key_size(props) > 0);
+    CheckCondition(rocksdb_tableproperties_get_raw_value_size(props) > 0);
+    char* props_string = rocksdb_tableproperties_to_string(props);
+    CheckCondition(props_string != NULL);
+    free(props_string);
+    rocksdb_tableproperties_destroy(props);
+    rocksdb_sstfilereader_destroy(reader);
+
     rocksdb_ingestexternalfileoptions_t* ing_opt =
         rocksdb_ingestexternalfileoptions_create();
     const char* file_list[1] = {sstfilename};
