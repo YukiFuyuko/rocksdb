@@ -11,6 +11,7 @@
 
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <unordered_set>
 #include <vector>
 
@@ -92,6 +93,7 @@ using ROCKSDB_NAMESPACE::FlushJobInfo;
 using ROCKSDB_NAMESPACE::FlushOptions;
 using ROCKSDB_NAMESPACE::HistogramData;
 using ROCKSDB_NAMESPACE::HyperClockCacheOptions;
+using ROCKSDB_NAMESPACE::ImportColumnFamilyOptions;
 using ROCKSDB_NAMESPACE::InfoLogLevel;
 using ROCKSDB_NAMESPACE::IngestExternalFileOptions;
 using ROCKSDB_NAMESPACE::Iterator;
@@ -279,6 +281,17 @@ struct rocksdb_envoptions_t {
 };
 struct rocksdb_ingestexternalfileoptions_t {
   IngestExternalFileOptions rep;
+};
+struct rocksdb_import_column_family_options_t {
+  ImportColumnFamilyOptions rep;
+};
+struct rocksdb_configoptions_t {
+  ConfigOptions rep;
+};
+struct rocksdb_loaded_cf_options_t {
+  DBOptions db_options;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  std::vector<std::unique_ptr<rocksdb_options_t>> cf_options;
 };
 struct rocksdb_sstfilewriter_t {
   SstFileWriter* rep;
@@ -3382,6 +3395,32 @@ uint64_t rocksdb_flushjobinfo_smallest_seqno(
   return info->rep.smallest_seqno;
 }
 
+uint8_t rocksdb_flushjobinfo_flush_reason(const rocksdb_flushjobinfo_t* info) {
+  return static_cast<uint8_t>(info->rep.flush_reason);
+}
+
+uint64_t rocksdb_flushjobinfo_cf_id(const rocksdb_flushjobinfo_t* info) {
+  return static_cast<uint64_t>(info->rep.cf_id);
+}
+
+uint64_t rocksdb_flushjobinfo_thread_id(const rocksdb_flushjobinfo_t* info) {
+  return info->rep.thread_id;
+}
+
+int rocksdb_flushjobinfo_job_id(const rocksdb_flushjobinfo_t* info) {
+  return info->rep.job_id;
+}
+
+const rocksdb_tableproperties_t* rocksdb_flushjobinfo_table_properties(
+    const rocksdb_flushjobinfo_t* info) {
+  if (info == nullptr) {
+    return nullptr;
+  }
+  thread_local rocksdb_tableproperties_t wrapper;
+  wrapper.rep = std::make_shared<TableProperties>(info->rep.table_properties);
+  return &wrapper;
+}
+
 void rocksdb_reset_status(rocksdb_status_ptr_t* status_ptr) {
   auto ptr = status_ptr->rep;
   *ptr = Status::OK();
@@ -3480,6 +3519,30 @@ uint64_t rocksdb_compactionjobinfo_total_output_bytes(
   return info->rep.stats.total_output_bytes;
 }
 
+uint64_t rocksdb_compactionjobinfo_thread_id(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.thread_id;
+}
+
+int rocksdb_compactionjobinfo_job_id(const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.job_id;
+}
+
+uint8_t rocksdb_compactionjobinfo_compression(
+    const rocksdb_compactionjobinfo_t* info) {
+  return static_cast<uint8_t>(info->rep.compression);
+}
+
+uint64_t rocksdb_compactionjobstats_num_records_replaced(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.stats.num_records_replaced;
+}
+
+uint64_t rocksdb_compactionjobstats_file_write_nanos(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.stats.file_write_nanos;
+}
+
 uint32_t rocksdb_compactionjobinfo_compaction_reason(
     const rocksdb_compactionjobinfo_t* info) {
   return static_cast<uint32_t>(info->rep.compaction_reason);
@@ -3525,6 +3588,28 @@ const char* rocksdb_externalfileingestioninfo_internal_file_path(
     const rocksdb_externalfileingestioninfo_t* info, size_t* size) {
   *size = info->rep.internal_file_path.size();
   return info->rep.internal_file_path.data();
+}
+
+const char* rocksdb_externalfileingestioninfo_external_file_path(
+    const rocksdb_externalfileingestioninfo_t* info, size_t* size) {
+  *size = info->rep.external_file_path.size();
+  return info->rep.external_file_path.data();
+}
+
+uint64_t rocksdb_externalfileingestioninfo_global_seqno(
+    const rocksdb_externalfileingestioninfo_t* info) {
+  return info->rep.global_seqno;
+}
+
+const rocksdb_tableproperties_t*
+rocksdb_externalfileingestioninfo_table_properties(
+    const rocksdb_externalfileingestioninfo_t* info) {
+  if (info == nullptr) {
+    return nullptr;
+  }
+  thread_local rocksdb_tableproperties_t wrapper;
+  wrapper.rep = std::make_shared<TableProperties>(info->rep.table_properties);
+  return &wrapper;
 }
 
 /* External write stall info */
@@ -3945,6 +4030,15 @@ void rocksdb_options_set_write_buffer_size(rocksdb_options_t* opt, size_t s) {
 void rocksdb_options_set_write_buffer_manager(
     rocksdb_options_t* opt, rocksdb_write_buffer_manager_t* wbm) {
   opt->rep.write_buffer_manager = wbm->rep;
+}
+
+void rocksdb_options_set_sst_file_manager(rocksdb_options_t* opt,
+                                          rocksdb_sst_file_manager_t* sfm) {
+  if (sfm) {
+    opt->rep.sst_file_manager = sfm->rep;
+  } else {
+    opt->rep.sst_file_manager.reset();
+  }
 }
 
 size_t rocksdb_options_get_write_buffer_size(rocksdb_options_t* opt) {
@@ -4964,6 +5058,47 @@ void rocksdb_options_statistics_get_histogram_data(
   }
 }
 
+uint64_t rocksdb_options_statistics_get_and_reset_ticker_count(
+    rocksdb_options_t* opt, uint32_t ticker_type) {
+  ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
+  if (statistics) {
+    return statistics->getAndResetTickerCount(ticker_type);
+  }
+  return 0;
+}
+
+char* rocksdb_options_statistics_get_histogram_string(rocksdb_options_t* opt,
+                                                      uint32_t histogram_type,
+                                                      size_t* len) {
+  ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
+  if (!statistics) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  std::string result = statistics->getHistogramString(histogram_type);
+  if (len != nullptr) {
+    *len = result.size();
+  }
+  return strdup(result.c_str());
+}
+
+void rocksdb_options_statistics_set_histograms(rocksdb_options_t* opt,
+                                               const uint32_t* histogram_types,
+                                               size_t count) {
+  ROCKSDB_NAMESPACE::Statistics* statistics = opt->rep.statistics.get();
+  if (!statistics) {
+    return;
+  }
+  std::vector<uint32_t> types;
+  types.reserve(count);
+  for (size_t i = 0; i < count; ++i) {
+    types.push_back(histogram_types[i]);
+  }
+  statistics->SetHistograms(types);
+}
+
 void rocksdb_options_statistics_reset(rocksdb_options_t* opt, char** errptr) {
   SaveError(errptr, opt->rep.statistics->Reset());
 }
@@ -5059,8 +5194,52 @@ void rocksdb_options_add_compact_on_deletion_collector_factory_del_ratio(
 }
 
 void rocksdb_set_perf_level(int v) {
-  PerfLevel level = static_cast<PerfLevel>(v);
+  PerfLevel level;
+  switch (v) {
+    case rocksdb_uninitialized:
+      level = PerfLevel::kUninitialized;
+      break;
+    case rocksdb_disable:
+      level = PerfLevel::kDisable;
+      break;
+    case rocksdb_enable_count:
+      level = PerfLevel::kEnableCount;
+      break;
+    case rocksdb_enable_time_except_for_mutex:
+      level = PerfLevel::kEnableTimeExceptForMutex;
+      break;
+    case rocksdb_enable_time_and_cpu_time_except_for_mutex:
+      level = PerfLevel::kEnableTimeAndCPUTimeExceptForMutex;
+      break;
+    case rocksdb_enable_time:
+      level = PerfLevel::kEnableTime;
+      break;
+    default:
+      level = PerfLevel::kOutOfBounds;
+      break;
+  }
   SetPerfLevel(level);
+}
+
+int rocksdb_get_perf_level(void) {
+  PerfLevel level = rocksdb::GetPerfLevel();
+  switch (level) {
+    case PerfLevel::kUninitialized:
+      return rocksdb_uninitialized;
+    case PerfLevel::kDisable:
+      return rocksdb_disable;
+    case PerfLevel::kEnableCount:
+      return rocksdb_enable_count;
+    case PerfLevel::kEnableWait:
+    case PerfLevel::kEnableTimeExceptForMutex:
+      return rocksdb_enable_time_except_for_mutex;
+    case PerfLevel::kEnableTimeAndCPUTimeExceptForMutex:
+      return rocksdb_enable_time_and_cpu_time_except_for_mutex;
+    case PerfLevel::kEnableTime:
+      return rocksdb_enable_time;
+    default:
+      return rocksdb_out_of_bounds;
+  }
 }
 
 rocksdb_perfcontext_t* rocksdb_perfcontext_create() {
@@ -6392,6 +6571,379 @@ char* rocksdb_tableproperties_to_string(
   return CopyString(tp->ToString());
 }
 
+rocksdb_configoptions_t* rocksdb_configoptions_create(void) {
+  return new rocksdb_configoptions_t;
+}
+
+void rocksdb_configoptions_destroy(rocksdb_configoptions_t* opt) { delete opt; }
+
+void rocksdb_configoptions_set_delimiter(rocksdb_configoptions_t* opt,
+                                         const char* delimiter) {
+  if (delimiter != nullptr) {
+    opt->rep.delimiter = delimiter;
+  }
+}
+
+void rocksdb_configoptions_set_ignore_unknown_options(
+    rocksdb_configoptions_t* opt, unsigned char ignore) {
+  opt->rep.ignore_unknown_options = (ignore != 0);
+}
+
+void rocksdb_configoptions_set_env(rocksdb_configoptions_t* opt,
+                                   rocksdb_env_t* env) {
+  opt->rep.env = env != nullptr ? env->rep : Env::Default();
+}
+
+void rocksdb_configoptions_set_input_strings_escaped(
+    rocksdb_configoptions_t* opt, unsigned char escaped) {
+  opt->rep.input_strings_escaped = (escaped != 0);
+}
+
+void rocksdb_configoptions_set_sanity_level(rocksdb_configoptions_t* opt,
+                                            unsigned char sanity_level) {
+  switch (sanity_level) {
+    case ConfigOptions::SanityLevel::kSanityLevelNone:
+    case ConfigOptions::SanityLevel::kSanityLevelLooselyCompatible:
+    case ConfigOptions::SanityLevel::kSanityLevelExactMatch:
+      opt->rep.sanity_level =
+          static_cast<ConfigOptions::SanityLevel>(sanity_level);
+      break;
+    default:
+      opt->rep.sanity_level =
+          ConfigOptions::SanityLevel::kSanityLevelExactMatch;
+      break;
+  }
+}
+
+namespace {
+bool BuildLoadedCfOptions(const ConfigOptions& config_options,
+                          const std::string& location, bool from_file,
+                          DBOptions* db_opts,
+                          std::vector<ColumnFamilyDescriptor>* cf_descs,
+                          char** errptr) {
+  Status s =
+      from_file
+          ? LoadOptionsFromFile(config_options, location, db_opts, cf_descs)
+          : LoadLatestOptions(config_options, location, db_opts, cf_descs);
+  return !SaveError(errptr, s);
+}
+
+void PopulateLoadedCfOptions(rocksdb_loaded_cf_options_t* loaded,
+                             const DBOptions& db_options,
+                             std::vector<ColumnFamilyDescriptor>&& cf_descs) {
+  loaded->db_options = db_options;
+  loaded->cf_descs = std::move(cf_descs);
+  loaded->cf_options.clear();
+  loaded->cf_options.reserve(loaded->cf_descs.size());
+  for (const auto& desc : loaded->cf_descs) {
+    std::unique_ptr<rocksdb_options_t> cf_opt(new rocksdb_options_t);
+    cf_opt->rep = Options(loaded->db_options, desc.options);
+    loaded->cf_options.emplace_back(std::move(cf_opt));
+  }
+}
+}  // namespace
+
+rocksdb_import_column_family_options_t*
+rocksdb_import_column_family_options_create(void) {
+  return new rocksdb_import_column_family_options_t;
+}
+
+void rocksdb_import_column_family_options_destroy(
+    rocksdb_import_column_family_options_t* opt) {
+  delete opt;
+}
+
+void rocksdb_import_column_family_options_set_move_files(
+    rocksdb_import_column_family_options_t* opt, unsigned char move_files) {
+  opt->rep.move_files = (move_files != 0);
+}
+
+unsigned char rocksdb_import_column_family_options_get_move_files(
+    const rocksdb_import_column_family_options_t* opt) {
+  return static_cast<unsigned char>(opt->rep.move_files);
+}
+
+rocksdb_loaded_cf_options_t* rocksdb_optionsutil_load_latest_options(
+    const rocksdb_configoptions_t* config, const char* db_path,
+    rocksdb_options_t* db_options, char** errptr) {
+  if (db_path == nullptr) {
+    SaveError(errptr, Status::InvalidArgument("db_path must not be null"));
+    return nullptr;
+  }
+  ConfigOptions cfg = config ? config->rep : ConfigOptions();
+  DBOptions db_opts;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  if (!BuildLoadedCfOptions(cfg, std::string(db_path), false, &db_opts,
+                            &cf_descs, errptr)) {
+    return nullptr;
+  }
+  if (db_options != nullptr) {
+    db_options->rep = Options(db_opts, ColumnFamilyOptions());
+  }
+  auto* loaded = new rocksdb_loaded_cf_options_t;
+  PopulateLoadedCfOptions(loaded, db_opts, std::move(cf_descs));
+  return loaded;
+}
+
+rocksdb_loaded_cf_options_t* rocksdb_optionsutil_load_options_from_file(
+    const rocksdb_configoptions_t* config, const char* options_file,
+    rocksdb_options_t* db_options, char** errptr) {
+  if (options_file == nullptr) {
+    SaveError(errptr, Status::InvalidArgument("options_file must not be null"));
+    return nullptr;
+  }
+  ConfigOptions cfg = config ? config->rep : ConfigOptions();
+  DBOptions db_opts;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  if (!BuildLoadedCfOptions(cfg, std::string(options_file), true, &db_opts,
+                            &cf_descs, errptr)) {
+    return nullptr;
+  }
+  if (db_options != nullptr) {
+    db_options->rep = Options(db_opts, ColumnFamilyOptions());
+  }
+  auto* loaded = new rocksdb_loaded_cf_options_t;
+  PopulateLoadedCfOptions(loaded, db_opts, std::move(cf_descs));
+  return loaded;
+}
+
+size_t rocksdb_optionsutil_descriptors_count(
+    const rocksdb_loaded_cf_options_t* loaded) {
+  return loaded ? loaded->cf_descs.size() : 0;
+}
+
+const char* rocksdb_optionsutil_descriptor_name(
+    const rocksdb_loaded_cf_options_t* loaded, size_t index, size_t* len) {
+  if (loaded == nullptr || index >= loaded->cf_descs.size()) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  const std::string& name = loaded->cf_descs[index].name;
+  if (len != nullptr) {
+    *len = name.size();
+  }
+  return name.c_str();
+}
+
+rocksdb_options_t* rocksdb_optionsutil_descriptor_options(
+    const rocksdb_loaded_cf_options_t* loaded, size_t index) {
+  if (loaded == nullptr || index >= loaded->cf_options.size()) {
+    return nullptr;
+  }
+  return loaded->cf_options[index].get();
+}
+
+void rocksdb_optionsutil_descriptors_destroy(
+    rocksdb_loaded_cf_options_t* loaded) {
+  delete loaded;
+}
+
+const char* rocksdb_optionsutil_get_latest_options_file_name(
+    const char* db_path, rocksdb_env_t* env, char** errptr) {
+  if (db_path == nullptr) {
+    SaveError(errptr, Status::InvalidArgument("db_path must not be null"));
+    return nullptr;
+  }
+  Env* env_ptr = env != nullptr ? env->rep : Env::Default();
+  std::string file_name;
+  if (!SaveError(errptr, GetLatestOptionsFileName(std::string(db_path), env_ptr,
+                                                  &file_name))) {
+    return strdup(file_name.c_str());
+  }
+  return nullptr;
+}
+
+uint64_t rocksdb_tableproperties_data_size(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_data_size(props);
+}
+
+uint64_t rocksdb_tableproperties_index_size(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_index_size(props);
+}
+
+uint64_t rocksdb_tableproperties_filter_size(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_filter_size(props);
+}
+
+uint64_t rocksdb_tableproperties_raw_key_size(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_raw_key_size(props);
+}
+
+uint64_t rocksdb_tableproperties_raw_value_size(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_raw_value_size(props);
+}
+
+uint64_t rocksdb_tableproperties_num_data_blocks(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_num_data_blocks(props);
+}
+
+uint64_t rocksdb_tableproperties_num_entries(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_num_entries(props);
+}
+
+uint64_t rocksdb_tableproperties_num_deletions(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_num_deletions(props);
+}
+
+uint64_t rocksdb_tableproperties_num_merge_operands(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_num_merge_operands(props);
+}
+
+uint64_t rocksdb_tableproperties_num_range_deletions(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_num_range_deletions(props);
+}
+
+uint64_t rocksdb_tableproperties_format_version(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_format_version(props);
+}
+
+uint64_t rocksdb_tableproperties_column_family_id(
+    const rocksdb_tableproperties_t* props) {
+  return rocksdb_tableproperties_get_column_family_id(props);
+}
+
+const char* rocksdb_tableproperties_column_family_name(
+    const rocksdb_tableproperties_t* props, size_t* len) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  if (len != nullptr) {
+    *len = tp->column_family_name.size();
+  }
+  return tp->column_family_name.c_str();
+}
+
+uint64_t rocksdb_tableproperties_creation_time(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->creation_time : 0;
+}
+
+uint64_t rocksdb_tableproperties_oldest_key_time(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->oldest_key_time : 0;
+}
+
+uint64_t rocksdb_tableproperties_slow_compression_estimated_data_size(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->slow_compression_estimated_data_size : 0;
+}
+
+uint64_t rocksdb_tableproperties_fast_compression_estimated_data_size(
+    const rocksdb_tableproperties_t* props) {
+  const TableProperties* tp = GetTableProperties(props);
+  return tp ? tp->fast_compression_estimated_data_size : 0;
+}
+
+const char* rocksdb_tableproperties_filter_policy_name(
+    const rocksdb_tableproperties_t* props, size_t* len) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  if (len != nullptr) {
+    *len = tp->filter_policy_name.size();
+  }
+  return tp->filter_policy_name.c_str();
+}
+
+const char* rocksdb_tableproperties_comparator_name(
+    const rocksdb_tableproperties_t* props, size_t* len) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  if (len != nullptr) {
+    *len = tp->comparator_name.size();
+  }
+  return tp->comparator_name.c_str();
+}
+
+const char* rocksdb_tableproperties_merge_operator_name(
+    const rocksdb_tableproperties_t* props, size_t* len) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  if (len != nullptr) {
+    *len = tp->merge_operator_name.size();
+  }
+  return tp->merge_operator_name.c_str();
+}
+
+const char* rocksdb_tableproperties_prefix_extractor_name(
+    const rocksdb_tableproperties_t* props, size_t* len) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  if (len != nullptr) {
+    *len = tp->prefix_extractor_name.size();
+  }
+  return tp->prefix_extractor_name.c_str();
+}
+
+const char* rocksdb_tableproperties_property_collectors_names(
+    const rocksdb_tableproperties_t* props, size_t* len) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  if (len != nullptr) {
+    *len = tp->property_collectors_names.size();
+  }
+  return tp->property_collectors_names.c_str();
+}
+
+const char* rocksdb_tableproperties_compression_name(
+    const rocksdb_tableproperties_t* props, size_t* len) {
+  const TableProperties* tp = GetTableProperties(props);
+  if (!tp) {
+    if (len != nullptr) {
+      *len = 0;
+    }
+    return nullptr;
+  }
+  if (len != nullptr) {
+    *len = tp->compression_name.size();
+  }
+  return tp->compression_name.c_str();
+}
+
 rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create(
     const rocksdb_envoptions_t* env, const rocksdb_options_t* io_options) {
   rocksdb_sstfilewriter_t* writer = new rocksdb_sstfilewriter_t;
@@ -6735,6 +7287,10 @@ const char* rocksdb_livefiles_column_family_name(const rocksdb_livefiles_t* lf,
 
 const char* rocksdb_livefiles_name(const rocksdb_livefiles_t* lf, int index) {
   return lf->rep[index].name.c_str();
+}
+
+const char* rocksdb_livefiles_path(const rocksdb_livefiles_t* lf, int index) {
+  return lf->rep[index].directory.c_str();
 }
 
 int rocksdb_livefiles_level(const rocksdb_livefiles_t* lf, int index) {
