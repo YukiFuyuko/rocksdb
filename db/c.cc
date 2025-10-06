@@ -72,10 +72,13 @@ using ROCKSDB_NAMESPACE::ColumnFamilyOptions;
 using ROCKSDB_NAMESPACE::CompactionFilter;
 using ROCKSDB_NAMESPACE::CompactionFilterFactory;
 using ROCKSDB_NAMESPACE::CompactionJobInfo;
+using ROCKSDB_NAMESPACE::CompactionOptions;
 using ROCKSDB_NAMESPACE::CompactionOptionsFIFO;
+using ROCKSDB_NAMESPACE::CompactionOptionsUniversal;
 using ROCKSDB_NAMESPACE::CompactionReason;
 using ROCKSDB_NAMESPACE::CompactRangeOptions;
 using ROCKSDB_NAMESPACE::Comparator;
+using ROCKSDB_NAMESPACE::CompressionOptions;
 using ROCKSDB_NAMESPACE::CompressionType;
 using ROCKSDB_NAMESPACE::ConfigOptions;
 using ROCKSDB_NAMESPACE::CreateBackupOptions;
@@ -197,6 +200,12 @@ struct rocksdb_flushoptions_t {
 struct rocksdb_fifo_compaction_options_t {
   CompactionOptionsFIFO rep;
 };
+struct rocksdb_compactionoptions_t {
+  CompactionOptions rep;
+};
+struct rocksdb_compactionoptions_fifo_t {
+  CompactionOptionsFIFO rep;
+};
 struct rocksdb_readoptions_t {
   ReadOptions rep;
   // stack variables to set pointers to in ReadOptions
@@ -210,6 +219,9 @@ struct rocksdb_writeoptions_t {
 };
 struct rocksdb_options_t {
   Options rep;
+};
+struct rocksdb_compression_options_t {
+  CompressionOptions rep;
 };
 struct rocksdb_compactoptions_t {
   CompactRangeOptions rep;
@@ -604,6 +616,9 @@ struct rocksdb_slicetransform_t : public SliceTransform {
 struct rocksdb_universal_compaction_options_t {
   ROCKSDB_NAMESPACE::CompactionOptionsUniversal* rep;
 };
+struct rocksdb_compactionoptions_universal_t {
+  ROCKSDB_NAMESPACE::CompactionOptionsUniversal* rep;
+};
 
 struct rocksdb_callback_logger_t : public Logger {
   static const ssize_t STACK_BUFSZ = 512;
@@ -924,6 +939,16 @@ void rocksdb_backup_engine_options_set_backup_dir(
 void rocksdb_backup_engine_options_set_env(
     rocksdb_backup_engine_options_t* options, rocksdb_env_t* env) {
   options->rep.backup_env = (env ? env->rep : nullptr);
+}
+
+void rocksdb_backup_engine_options_set_backup_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  options->rep.backup_rate_limiter = limiter ? limiter->rep : nullptr;
+}
+
+void rocksdb_backup_engine_options_set_restore_rate_limiter(
+    rocksdb_backup_engine_options_t* options, rocksdb_ratelimiter_t* limiter) {
+  options->rep.restore_rate_limiter = limiter ? limiter->rep : nullptr;
 }
 
 void rocksdb_backup_engine_options_set_share_table_files(
@@ -5174,6 +5199,20 @@ rocksdb_ratelimiter_t* rocksdb_ratelimiter_create_with_mode(
   return rate_limiter;
 }
 
+void rocksdb_ratelimiter_set_bytes_per_second(rocksdb_ratelimiter_t* limiter,
+                                              uint64_t bytes_per_second) {
+  if (limiter && limiter->rep) {
+    limiter->rep->SetBytesPerSecond(static_cast<int64_t>(bytes_per_second));
+  }
+}
+
+uint64_t rocksdb_ratelimiter_bytes_per_second(rocksdb_ratelimiter_t* limiter) {
+  if (!limiter || !limiter->rep) {
+    return 0;
+  }
+  return static_cast<uint64_t>(limiter->rep->GetBytesPerSecond());
+}
+
 void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t* limiter) {
   delete limiter;
 }
@@ -6017,6 +6056,11 @@ void rocksdb_flushoptions_set_wait(rocksdb_flushoptions_t* opt,
 
 unsigned char rocksdb_flushoptions_get_wait(rocksdb_flushoptions_t* opt) {
   return opt->rep.wait;
+}
+
+void rocksdb_flushoptions_set_allow_write_stall(rocksdb_flushoptions_t* opt,
+                                                unsigned char allow) {
+  opt->rep.allow_write_stall = allow;
 }
 
 rocksdb_memory_allocator_t* rocksdb_jemalloc_nodump_allocator_create(
@@ -7161,6 +7205,203 @@ rocksdb_slicetransform_t* rocksdb_slicetransform_create_noop() {
   wrapper->state_ = nullptr;
   wrapper->destructor_ = &SliceTransformWrapper::DoNothing;
   return wrapper;
+}
+
+rocksdb_compactionoptions_t* rocksdb_compactionoptions_create() {
+  auto* result = new rocksdb_compactionoptions_t;
+  result->rep = CompactionOptions();
+  return result;
+}
+
+void rocksdb_compactionoptions_destroy(rocksdb_compactionoptions_t* options) {
+  delete options;
+}
+
+int rocksdb_compactionoptions_get_compression(
+    rocksdb_compactionoptions_t* options) {
+  return static_cast<int>(options->rep.compression);
+}
+
+void rocksdb_compactionoptions_set_compression(
+    rocksdb_compactionoptions_t* options, int compression) {
+  options->rep.compression = static_cast<CompressionType>(compression);
+}
+
+uint64_t rocksdb_compactionoptions_get_output_file_size_limit(
+    rocksdb_compactionoptions_t* options) {
+  return options->rep.output_file_size_limit;
+}
+
+void rocksdb_compactionoptions_set_output_file_size_limit(
+    rocksdb_compactionoptions_t* options, uint64_t limit) {
+  options->rep.output_file_size_limit = limit;
+}
+
+uint32_t rocksdb_compactionoptions_get_max_subcompactions(
+    rocksdb_compactionoptions_t* options) {
+  return options->rep.max_subcompactions;
+}
+
+void rocksdb_compactionoptions_set_max_subcompactions(
+    rocksdb_compactionoptions_t* options, uint32_t max_subcompactions) {
+  options->rep.max_subcompactions = max_subcompactions;
+}
+
+rocksdb_compactionoptions_fifo_t* rocksdb_compactionoptions_fifo_create() {
+  auto* result = new rocksdb_compactionoptions_fifo_t;
+  result->rep = CompactionOptionsFIFO();
+  return result;
+}
+
+void rocksdb_compactionoptions_fifo_destroy(
+    rocksdb_compactionoptions_fifo_t* options) {
+  delete options;
+}
+
+void rocksdb_compactionoptions_fifo_set_max_table_files_size(
+    rocksdb_compactionoptions_fifo_t* options, uint64_t size) {
+  options->rep.max_table_files_size = size;
+}
+
+uint64_t rocksdb_compactionoptions_fifo_max_table_files_size(
+    rocksdb_compactionoptions_fifo_t* options) {
+  return options->rep.max_table_files_size;
+}
+
+void rocksdb_compactionoptions_fifo_set_allow_compaction(
+    rocksdb_compactionoptions_fifo_t* options, unsigned char allow) {
+  options->rep.allow_compaction = allow;
+}
+
+unsigned char rocksdb_compactionoptions_fifo_allow_compaction(
+    rocksdb_compactionoptions_fifo_t* options) {
+  return options->rep.allow_compaction;
+}
+
+rocksdb_compactionoptions_universal_t*
+rocksdb_compactionoptions_universal_create() {
+  auto* result = new rocksdb_compactionoptions_universal_t;
+  result->rep = new CompactionOptionsUniversal();
+  return result;
+}
+
+void rocksdb_compactionoptions_universal_destroy(
+    rocksdb_compactionoptions_universal_t* options) {
+  delete options->rep;
+  delete options;
+}
+
+void rocksdb_compactionoptions_universal_set_size_ratio(
+    rocksdb_compactionoptions_universal_t* options, int size_ratio) {
+  options->rep->size_ratio = static_cast<unsigned int>(size_ratio);
+}
+
+int rocksdb_compactionoptions_universal_size_ratio(
+    rocksdb_compactionoptions_universal_t* options) {
+  return static_cast<int>(options->rep->size_ratio);
+}
+
+void rocksdb_compactionoptions_universal_set_min_merge_width(
+    rocksdb_compactionoptions_universal_t* options, int width) {
+  options->rep->min_merge_width = static_cast<unsigned int>(width);
+}
+
+int rocksdb_compactionoptions_universal_min_merge_width(
+    rocksdb_compactionoptions_universal_t* options) {
+  return static_cast<int>(options->rep->min_merge_width);
+}
+
+void rocksdb_compactionoptions_universal_set_max_merge_width(
+    rocksdb_compactionoptions_universal_t* options, int width) {
+  options->rep->max_merge_width = static_cast<unsigned int>(width);
+}
+
+int rocksdb_compactionoptions_universal_max_merge_width(
+    rocksdb_compactionoptions_universal_t* options) {
+  return static_cast<int>(options->rep->max_merge_width);
+}
+
+void rocksdb_compactionoptions_universal_set_max_size_amplification_percent(
+    rocksdb_compactionoptions_universal_t* options, int percent) {
+  options->rep->max_size_amplification_percent =
+      static_cast<unsigned int>(percent);
+}
+
+int rocksdb_compactionoptions_universal_max_size_amplification_percent(
+    rocksdb_compactionoptions_universal_t* options) {
+  return static_cast<int>(options->rep->max_size_amplification_percent);
+}
+
+void rocksdb_compactionoptions_universal_set_compression_size_percent(
+    rocksdb_compactionoptions_universal_t* options, int percent) {
+  options->rep->compression_size_percent = percent;
+}
+
+int rocksdb_compactionoptions_universal_compression_size_percent(
+    rocksdb_compactionoptions_universal_t* options) {
+  return options->rep->compression_size_percent;
+}
+
+void rocksdb_compactionoptions_universal_set_stop_style(
+    rocksdb_compactionoptions_universal_t* options, int style) {
+  options->rep->stop_style =
+      static_cast<ROCKSDB_NAMESPACE::CompactionStopStyle>(style);
+}
+
+int rocksdb_compactionoptions_universal_stop_style(
+    rocksdb_compactionoptions_universal_t* options) {
+  return static_cast<int>(options->rep->stop_style);
+}
+
+rocksdb_compression_options_t* rocksdb_compression_options_create() {
+  auto* result = new rocksdb_compression_options_t;
+  result->rep = CompressionOptions();
+  return result;
+}
+
+void rocksdb_compression_options_destroy(
+    rocksdb_compression_options_t* options) {
+  delete options;
+}
+
+void rocksdb_compression_options_set_window_bits(
+    rocksdb_compression_options_t* options, int window_bits) {
+  options->rep.window_bits = window_bits;
+}
+
+int rocksdb_compression_options_get_window_bits(
+    rocksdb_compression_options_t* options) {
+  return options->rep.window_bits;
+}
+
+void rocksdb_compression_options_set_level(
+    rocksdb_compression_options_t* options, int level) {
+  options->rep.level = level;
+}
+
+int rocksdb_compression_options_get_level(
+    rocksdb_compression_options_t* options) {
+  return options->rep.level;
+}
+
+void rocksdb_compression_options_set_strategy(
+    rocksdb_compression_options_t* options, int strategy) {
+  options->rep.strategy = strategy;
+}
+
+int rocksdb_compression_options_get_strategy(
+    rocksdb_compression_options_t* options) {
+  return options->rep.strategy;
+}
+
+void rocksdb_compression_options_set_max_dict_bytes(
+    rocksdb_compression_options_t* options, uint32_t bytes) {
+  options->rep.max_dict_bytes = bytes;
+}
+
+uint32_t rocksdb_compression_options_get_max_dict_bytes(
+    rocksdb_compression_options_t* options) {
+  return options->rep.max_dict_bytes;
 }
 
 rocksdb_universal_compaction_options_t*
