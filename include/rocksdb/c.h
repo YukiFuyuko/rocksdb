@@ -1468,7 +1468,7 @@ typedef void (*on_subcompaction_completed_cb)(
     void*, const rocksdb_subcompactionjobinfo_t*);
 typedef void (*on_external_file_ingested_cb)(
     void*, rocksdb_t*, const rocksdb_externalfileingestioninfo_t*);
-typedef void (*on_background_error_cb)(void*, uint32_t, rocksdb_status_ptr_t*);
+typedef void (*on_background_error_cb)(void*, uint32_t, const char*);
 typedef void (*on_stall_conditions_changed_cb)(void*,
                                                const rocksdb_writestallinfo_t*);
 typedef void (*rocksdb_logger_logv_cb)(void*, uint32_t log_level, const char*);
