@@ -379,10 +379,10 @@ static void TestOnExternalFileIngested(
 }
 
 static void TestOnBackgroundError(void* state, uint32_t reason,
-                                  rocksdb_status_ptr_t* status_ptr) {
+                                  const char* status) {
   (void)state;
   (void)reason;
-  (void)status_ptr;
+  (void)status;
 }
 
 static void TestOnStallConditionsChanged(void* state,
