@@ -4308,7 +4308,7 @@ struct rocksdb_eventlistener_t : public EventListener {
                                      const rocksdb_subcompactionjobinfo_t*){};
   void (*on_external_file_ingested)(
       void*, rocksdb_t*, const rocksdb_externalfileingestioninfo_t*){};
-  void (*on_background_error)(void*, uint32_t, rocksdb_status_ptr_t*){};
+  void (*on_background_error)(void*, uint32_t, const char*){};
   void (*on_stall_conditions_changed)(void*, const rocksdb_writestallinfo_t*){};
   void (*on_memtable_sealed)(void*, const rocksdb_memtableinfo_t*){};
 
@@ -4365,10 +4365,12 @@ struct rocksdb_eventlistener_t : public EventListener {
 
   void OnBackgroundError(BackgroundErrorReason reason,
                          Status* status) override {
-    rocksdb_status_ptr_t* s = new rocksdb_status_ptr_t;
-    s->rep = status;
-    on_background_error(state_, static_cast<uint32_t>(reason), s);
-    delete s;
+    char* err = nullptr;
+    SaveError(&err, *status);
+    on_background_error(state_, static_cast<uint32_t>(reason), err);
+    if (err != nullptr) {
+      free(err);
+    }
   }
 
   void OnStallConditionsChanged(const WriteStallInfo& info) override {
