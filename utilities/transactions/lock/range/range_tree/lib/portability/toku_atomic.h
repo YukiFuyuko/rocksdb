@@ -77,37 +77,44 @@ template <typename T, typename U>
 __attribute__((always_inline)) static inline T toku_sync_fetch_and_add(T *addr,
                                                                        U diff) {
   paranoid_invariant(!crosses_boundary(addr, sizeof *addr));
-  return __sync_fetch_and_add(addr, diff);
+  return __atomic_fetch_add(addr, diff, __ATOMIC_SEQ_CST);
 }
 template <typename T, typename U>
 __attribute__((always_inline)) static inline T toku_sync_add_and_fetch(T *addr,
                                                                        U diff) {
   paranoid_invariant(!crosses_boundary(addr, sizeof *addr));
-  return __sync_add_and_fetch(addr, diff);
+  return __atomic_add_fetch(addr, diff, __ATOMIC_SEQ_CST);
 }
 template <typename T, typename U>
 __attribute__((always_inline)) static inline T toku_sync_fetch_and_sub(T *addr,
                                                                        U diff) {
   paranoid_invariant(!crosses_boundary(addr, sizeof *addr));
-  return __sync_fetch_and_sub(addr, diff);
+  return __atomic_fetch_sub(addr, diff, __ATOMIC_SEQ_CST);
 }
 template <typename T, typename U>
 __attribute__((always_inline)) static inline T toku_sync_sub_and_fetch(T *addr,
                                                                        U diff) {
   paranoid_invariant(!crosses_boundary(addr, sizeof *addr));
-  return __sync_sub_and_fetch(addr, diff);
+  return __atomic_sub_fetch(addr, diff, __ATOMIC_SEQ_CST);
 }
 template <typename T, typename U, typename V>
 __attribute__((always_inline)) static inline T toku_sync_val_compare_and_swap(
     T *addr, U oldval, V newval) {
   paranoid_invariant(!crosses_boundary(addr, sizeof *addr));
-  return __sync_val_compare_and_swap(addr, oldval, newval);
+  T expected = static_cast<T>(oldval);
+  (void)__atomic_compare_exchange_n(addr, &expected, static_cast<T>(newval),
+                                    false, __ATOMIC_SEQ_CST,
+                                    __ATOMIC_SEQ_CST);
+  return expected;
 }
 template <typename T, typename U, typename V>
 __attribute__((always_inline)) static inline bool
 toku_sync_bool_compare_and_swap(T *addr, U oldval, V newval) {
   paranoid_invariant(!crosses_boundary(addr, sizeof *addr));
-  return __sync_bool_compare_and_swap(addr, oldval, newval);
+  T expected = static_cast<T>(oldval);
+  return __atomic_compare_exchange_n(addr, &expected, static_cast<T>(newval),
+                                     false, __ATOMIC_SEQ_CST,
+                                     __ATOMIC_SEQ_CST);
 }
 
 // in case you include this but not toku_portability.h
