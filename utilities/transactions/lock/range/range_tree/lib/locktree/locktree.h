@@ -183,7 +183,7 @@ class locktree_manager {
 
   void note_mem_released(uint64_t mem_freed);
 
-  bool out_of_locks(void) const;
+  bool out_of_locks(void);
 
   // Escalate all locktrees
   void escalate_all_locktrees(void);

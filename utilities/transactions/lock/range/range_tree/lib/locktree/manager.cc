@@ -292,21 +292,31 @@ void locktree_manager::escalate_all_locktrees(void) {
 }
 
 void locktree_manager::note_mem_used(uint64_t mem_used) {
-  (void)toku_sync_fetch_and_add(&m_current_lock_memory, mem_used);
+  mutex_lock();
+  m_current_lock_memory += mem_used;
+  mutex_unlock();
 }
 
 void locktree_manager::note_mem_released(uint64_t mem_released) {
-  uint64_t old_mem_used =
-      toku_sync_fetch_and_sub(&m_current_lock_memory, mem_released);
+  mutex_lock();
+  uint64_t old_mem_used = m_current_lock_memory;
   invariant(old_mem_used >= mem_released);
+  m_current_lock_memory -= mem_released;
+  mutex_unlock();
 }
 
-bool locktree_manager::out_of_locks(void) const {
-  return m_current_lock_memory >= m_max_lock_memory;
+bool locktree_manager::out_of_locks(void) {
+  mutex_lock();
+  bool out = m_current_lock_memory >= m_max_lock_memory;
+  mutex_unlock();
+  return out;
 }
 
 bool locktree_manager::over_big_threshold(void) {
-  return m_current_lock_memory >= m_max_lock_memory / 2;
+  mutex_lock();
+  bool over = m_current_lock_memory >= m_max_lock_memory / 2;
+  mutex_unlock();
+  return over;
 }
 
 int locktree_manager::iterate_pending_lock_requests(
