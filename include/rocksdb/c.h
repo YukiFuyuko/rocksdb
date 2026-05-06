@@ -169,8 +169,15 @@ typedef struct rocksdb_memtableinfo_t rocksdb_memtableinfo_t;
 typedef struct rocksdb_tableproperties_t rocksdb_tableproperties_t;
 typedef struct rocksdb_import_column_family_options_t
     rocksdb_import_column_family_options_t;
+typedef struct rocksdb_export_import_files_metadata_t
+    rocksdb_export_import_files_metadata_t;
 typedef struct rocksdb_configoptions_t rocksdb_configoptions_t;
 typedef struct rocksdb_loaded_cf_options_t rocksdb_loaded_cf_options_t;
+
+typedef struct rocksdb_slice_t {
+  const char* data;
+  size_t size;
+} rocksdb_slice_t;
 
 // Remote Compaction typedef
 typedef struct rocksdb_compactionservice_scheduleresponse_t
@@ -459,6 +466,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_checkpoint_create(
     rocksdb_checkpoint_t* checkpoint, const char* checkpoint_dir,
     uint64_t log_size_for_flush, char** errptr);
 
+extern ROCKSDB_LIBRARY_API rocksdb_export_import_files_metadata_t*
+rocksdb_checkpoint_export_column_family(
+    rocksdb_checkpoint_t* checkpoint, rocksdb_column_family_handle_t* handle,
+    const char* export_dir, char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_checkpoint_object_destroy(
     rocksdb_checkpoint_t* checkpoint);
 
@@ -523,6 +535,12 @@ extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t*
 rocksdb_create_column_family_with_ttl(
     rocksdb_t* db, const rocksdb_options_t* column_family_options,
     const char* column_family_name, int ttl, char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t*
+rocksdb_create_column_family_with_import(
+    rocksdb_t* db, const rocksdb_options_t* column_family_options,
+    const char* column_family_name,
+    const rocksdb_import_column_family_options_t* import_options,
+    const rocksdb_export_import_files_metadata_t* metadata, char** errptr);
 extern ROCKSDB_LIBRARY_API rocksdb_ttl_t* rocksdb_ttl_open(
     rocksdb_options_t* options, const char* name, int ttl,
     unsigned char read_only, char** errptr);
@@ -694,6 +712,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_batched_multi_get_cf(
     rocksdb_column_family_handle_t* column_family, size_t num_keys,
     const char* const* keys_list, const size_t* keys_list_sizes,
     rocksdb_pinnableslice_t** values, char** errs, const bool sorted_input);
+extern ROCKSDB_LIBRARY_API void rocksdb_batched_multi_get_cf_slice(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_keys,
+    const rocksdb_slice_t* keys, rocksdb_pinnableslice_t** values, char** errs,
+    const bool sorted_input);
 
 // The value is only allocated (using malloc) and returned if it is found and
 // value_found isn't NULL. In that case the user is responsible for freeing it.
@@ -901,6 +924,10 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_timestamp(
     const rocksdb_iterator_t*, size_t* tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_get_error(
     const rocksdb_iterator_t*, char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_slice_t rocksdb_iter_key_slice(
+    const rocksdb_iterator_t*);
+extern ROCKSDB_LIBRARY_API rocksdb_slice_t rocksdb_iter_value_slice(
+    const rocksdb_iterator_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_refresh(
     const rocksdb_iterator_t* iter, char** errptr);
 
@@ -1160,6 +1187,10 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_writebatch_wi_data(
     rocksdb_writebatch_wi_t* b, size_t* size);
 extern ROCKSDB_LIBRARY_API size_t
 rocksdb_writebatch_wi_get_data_size(rocksdb_writebatch_wi_t* b);
+// Returns a borrowed write batch owned by the WriteBatchWithIndex. Do not
+// destroy the returned write batch separately.
+extern ROCKSDB_LIBRARY_API rocksdb_writebatch_t*
+rocksdb_writebatch_wi_get_write_batch(rocksdb_writebatch_wi_t* b);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_set_save_point(
     rocksdb_writebatch_wi_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_rollback_to_save_point(
@@ -2981,6 +3012,11 @@ rocksdb_import_column_family_options_set_move_files(
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_import_column_family_options_get_move_files(
     const rocksdb_import_column_family_options_t* opt);
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_export_import_files_metadata_get_db_comparator_name(
+    const rocksdb_export_import_files_metadata_t* metadata);
+extern ROCKSDB_LIBRARY_API void rocksdb_export_import_files_metadata_destroy(
+    rocksdb_export_import_files_metadata_t* metadata);
 
 /* Options utility */
 
@@ -3954,6 +3990,15 @@ extern ROCKSDB_LIBRARY_API rocksdb_pinnableslice_t* rocksdb_get_pinned_cf(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, char** errptr);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_get_into_buffer(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, char* value, size_t value_capacity, size_t* vallen,
+    unsigned char* found, char** errptr);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_get_into_buffer_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char* value, size_t value_capacity, size_t* vallen,
+    unsigned char* found, char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_pinnableslice_destroy(
     rocksdb_pinnableslice_t* v);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnableslice_value(

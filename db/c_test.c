@@ -1678,7 +1678,8 @@ int main(int argc, char** argv) {
     const char* put_vals[3] = {"v", "a", "l"};
     const size_t put_val_sizes[3] = {1, 1, 1};
     rocksdb_writebatch_putv_cf(wb, wb_cf, 2, put_keys, put_key_sizes, 3,
-                               put_vals, put_val_sizes);
+                               put_vals, put_val_sizes, &err);
+    CheckNoError(err);
     rocksdb_write(db, woptions, wb, &err);
     CheckNoError(err);
     // putv_cf concatenates: key="k"+"ey"="key", value="v"+"a"+"l"="val"
@@ -1690,16 +1691,20 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_clear(wb);
     const char* del_keys[2] = {"k", "ey"};
     const size_t del_key_sizes[2] = {1, 2};
-    rocksdb_writebatch_deletev_cf(wb, wb_cf, 2, del_keys, del_key_sizes);
+    rocksdb_writebatch_deletev_cf(wb, wb_cf, 2, del_keys, del_key_sizes, &err);
+    CheckNoError(err);
     rocksdb_write(db, woptions, wb, &err);
     CheckNoError(err);
     CheckGetCF(db, roptions, wb_cf, "key", NULL);
 
     // Test delete_rangev_cf: concatenates slices for range deletion
     rocksdb_writebatch_clear(wb);
-    rocksdb_writebatch_put_cf(wb, wb_cf, "a", 1, "1", 1);
-    rocksdb_writebatch_put_cf(wb, wb_cf, "b", 1, "2", 1);
-    rocksdb_writebatch_put_cf(wb, wb_cf, "c", 1, "3", 1);
+    rocksdb_writebatch_put_cf(wb, wb_cf, "a", 1, "1", 1, &err);
+    CheckNoError(err);
+    rocksdb_writebatch_put_cf(wb, wb_cf, "b", 1, "2", 1, &err);
+    CheckNoError(err);
+    rocksdb_writebatch_put_cf(wb, wb_cf, "c", 1, "3", 1, &err);
+    CheckNoError(err);
     rocksdb_write(db, woptions, wb, &err);
     CheckNoError(err);
     CheckGetCF(db, roptions, wb_cf, "a", "1");
@@ -1713,7 +1718,8 @@ int main(int argc, char** argv) {
     const size_t range_end_sizes[2] = {1, 0};
     rocksdb_writebatch_delete_rangev_cf(wb, wb_cf, 2, range_start,
                                         range_start_sizes, range_end,
-                                        range_end_sizes);
+                                        range_end_sizes, &err);
+    CheckNoError(err);
     rocksdb_write(db, woptions, wb, &err);
     CheckNoError(err);
     // Range [a, c) should delete "a" and "b", but not "c"
@@ -1806,6 +1812,8 @@ int main(int argc, char** argv) {
 
     size_t data_size = rocksdb_writebatch_wi_get_data_size(wbi);
     CheckCondition(data_size > 0);
+    rocksdb_writebatch_t* wb = rocksdb_writebatch_wi_get_write_batch(wbi);
+    CheckCondition(rocksdb_writebatch_count(wb) == count);
 
     size_t size;
     char* value;
@@ -2038,22 +2046,22 @@ int main(int argc, char** argv) {
     CheckMultiGetValues(3, vals, vals_sizes, errs, expected);
   }
 
-  StartPhase("zero_copy_get_pinned_v2");
+  StartPhase("zero_copy_get_pinned");
   {
     // Test new zero-copy get functions
 
-    // Test rocksdb_get_pinned_v2
-    rocksdb_pinnable_handle_t* handle =
-        rocksdb_get_pinned_v2(db, roptions, "foo", 3, &err);
+    // Test rocksdb_get_pinned
+    rocksdb_pinnableslice_t* handle =
+        rocksdb_get_pinned(db, roptions, "foo", 3, &err);
     CheckNoError(err);
     CheckCondition(handle != NULL);
     size_t val_len;
-    const char* val = rocksdb_pinnable_handle_get_value(handle, &val_len);
+    const char* val = rocksdb_pinnableslice_value(handle, &val_len);
     CheckEqual("hello", val, val_len);
-    rocksdb_pinnable_handle_destroy(handle);
+    rocksdb_pinnableslice_destroy(handle);
 
     // Test with non-existent key
-    handle = rocksdb_get_pinned_v2(db, roptions, "notfound", 8, &err);
+    handle = rocksdb_get_pinned(db, roptions, "notfound", 8, &err);
     CheckNoError(err);
     CheckCondition(handle == NULL);
 
@@ -2526,18 +2534,18 @@ int main(int argc, char** argv) {
 
     // Test zero-copy get with column families
     {
-      rocksdb_pinnable_handle_t* handle =
-          rocksdb_get_pinned_cf_v2(db, roptions, handles[1], "box", 3, &err);
+      rocksdb_pinnableslice_t* handle =
+          rocksdb_get_pinned_cf(db, roptions, handles[1], "box", 3, &err);
       CheckNoError(err);
       CheckCondition(handle != NULL);
       size_t val_len;
-      const char* val = rocksdb_pinnable_handle_get_value(handle, &val_len);
+      const char* val = rocksdb_pinnableslice_value(handle, &val_len);
       CheckEqual("c", val, val_len);
-      rocksdb_pinnable_handle_destroy(handle);
+      rocksdb_pinnableslice_destroy(handle);
 
       // Test with non-existent key
-      handle = rocksdb_get_pinned_cf_v2(db, roptions, handles[1], "notfound", 8,
-                                        &err);
+      handle = rocksdb_get_pinned_cf(db, roptions, handles[1], "notfound", 8,
+                                     &err);
       CheckNoError(err);
       CheckCondition(handle == NULL);
 

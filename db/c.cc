@@ -103,6 +103,7 @@ using ROCKSDB_NAMESPACE::DBWithTTL;
 using ROCKSDB_NAMESPACE::Env;
 using ROCKSDB_NAMESPACE::EnvOptions;
 using ROCKSDB_NAMESPACE::EventListener;
+using ROCKSDB_NAMESPACE::ExportImportFilesMetaData;
 using ROCKSDB_NAMESPACE::ExternalFileIngestionInfo;
 using ROCKSDB_NAMESPACE::FileLock;
 using ROCKSDB_NAMESPACE::FilterPolicy;
@@ -204,13 +205,27 @@ struct rocksdb_iterator_t {
   Iterator* rep;
 };
 struct rocksdb_writebatch_t {
-  WriteBatch rep;
+  WriteBatch* rep_;
+  bool owns_rep;
+  WriteBatch& rep;
+
+  rocksdb_writebatch_t() : rep_(new WriteBatch), owns_rep(true), rep(*rep_) {}
+
+  explicit rocksdb_writebatch_t(WriteBatch* borrowed_rep)
+      : rep_(borrowed_rep), owns_rep(false), rep(*rep_) {}
+
+  ~rocksdb_writebatch_t() {
+    if (owns_rep) {
+      delete rep_;
+    }
+  }
 };
 struct rocksdb_save_point_t {
   SavePoint rep;
 };
 struct rocksdb_writebatch_wi_t {
   WriteBatchWithIndex* rep;
+  rocksdb_writebatch_t* write_batch;
 };
 struct rocksdb_snapshot_t {
   const Snapshot* rep;
@@ -324,6 +339,9 @@ struct rocksdb_ingestexternalfileoptions_t {
 };
 struct rocksdb_import_column_family_options_t {
   ImportColumnFamilyOptions rep;
+};
+struct rocksdb_export_import_files_metadata_t {
+  ExportImportFilesMetaData* rep;
 };
 struct rocksdb_configoptions_t {
   ConfigOptions rep;
@@ -1594,6 +1612,20 @@ void rocksdb_checkpoint_create(rocksdb_checkpoint_t* checkpoint,
                         std::string(checkpoint_dir), log_size_for_flush));
 }
 
+rocksdb_export_import_files_metadata_t*
+rocksdb_checkpoint_export_column_family(
+    rocksdb_checkpoint_t* checkpoint, rocksdb_column_family_handle_t* handle,
+    const char* export_dir, char** errptr) {
+  ExportImportFilesMetaData* metadata = nullptr;
+  if (SaveError(errptr, checkpoint->rep->ExportColumnFamily(
+                            handle->rep, std::string(export_dir), &metadata))) {
+    return nullptr;
+  }
+  auto* result = new rocksdb_export_import_files_metadata_t;
+  result->rep = metadata;
+  return result;
+}
+
 void rocksdb_checkpoint_object_destroy(rocksdb_checkpoint_t* checkpoint) {
   delete checkpoint->rep;
   delete checkpoint;
@@ -1607,6 +1639,24 @@ void rocksdb_close(rocksdb_t* db) {
     delete db->rep;
   }
   delete db;
+}
+
+rocksdb_column_family_handle_t* rocksdb_create_column_family_with_import(
+    rocksdb_t* db, const rocksdb_options_t* column_family_options,
+    const char* column_family_name,
+    const rocksdb_import_column_family_options_t* import_options,
+    const rocksdb_export_import_files_metadata_t* metadata, char** errptr) {
+  ColumnFamilyHandle* handle = nullptr;
+  if (SaveError(errptr, db->rep->CreateColumnFamilyWithImport(
+                            ColumnFamilyOptions(column_family_options->rep),
+                            std::string(column_family_name),
+                            import_options->rep, *metadata->rep, &handle))) {
+    return nullptr;
+  }
+  rocksdb_column_family_handle_t* result = new rocksdb_column_family_handle_t;
+  result->rep = handle;
+  result->immortal = false;
+  return result;
 }
 
 void rocksdb_options_set_uint64add_merge_operator(rocksdb_options_t* opt) {
@@ -2403,6 +2453,41 @@ void rocksdb_batched_multi_get_cf(rocksdb_t* db,
   delete[] statuses;
 }
 
+void rocksdb_batched_multi_get_cf_slice(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_keys,
+    const rocksdb_slice_t* keys, rocksdb_pinnableslice_t** values, char** errs,
+    const bool sorted_input) {
+  Slice* key_slices = new Slice[num_keys];
+  PinnableSlice* value_slices = new PinnableSlice[num_keys];
+  Status* statuses = new Status[num_keys];
+  for (size_t i = 0; i < num_keys; ++i) {
+    key_slices[i] = Slice(keys[i].data, keys[i].size);
+  }
+
+  db->rep->MultiGet(options->rep, column_family->rep, num_keys, key_slices,
+                    value_slices, statuses, sorted_input);
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    if (statuses[i].ok()) {
+      values[i] = new (rocksdb_pinnableslice_t);
+      values[i]->rep = std::move(value_slices[i]);
+      errs[i] = nullptr;
+    } else {
+      values[i] = nullptr;
+      if (!statuses[i].IsNotFound()) {
+        errs[i] = strdup(statuses[i].ToString().c_str());
+      } else {
+        errs[i] = nullptr;
+      }
+    }
+  }
+
+  delete[] key_slices;
+  delete[] value_slices;
+  delete[] statuses;
+}
+
 unsigned char rocksdb_key_may_exist(rocksdb_t* db,
                                     const rocksdb_readoptions_t* options,
                                     const char* key, size_t key_len,
@@ -2917,6 +3002,16 @@ void rocksdb_iter_get_error(const rocksdb_iterator_t* iter, char** errptr) {
   SaveError(errptr, iter->rep->status());
 }
 
+rocksdb_slice_t rocksdb_iter_key_slice(const rocksdb_iterator_t* iter) {
+  Slice key = iter->rep->key();
+  return rocksdb_slice_t{key.data(), key.size()};
+}
+
+rocksdb_slice_t rocksdb_iter_value_slice(const rocksdb_iterator_t* iter) {
+  Slice value = iter->rep->value();
+  return rocksdb_slice_t{value.data(), value.size()};
+}
+
 void rocksdb_iter_refresh(const rocksdb_iterator_t* iter, char** errptr) {
   SaveError(errptr, iter->rep->Refresh());
 }
@@ -3264,6 +3359,7 @@ rocksdb_writebatch_wi_t* rocksdb_writebatch_wi_create(
   rocksdb_writebatch_wi_t* b = new rocksdb_writebatch_wi_t;
   b->rep = new WriteBatchWithIndex(BytewiseComparator(), reserved_bytes,
                                    overwrite_key);
+  b->write_batch = new rocksdb_writebatch_t(b->rep->GetWriteBatch());
   return b;
 }
 
@@ -3275,6 +3371,7 @@ rocksdb_writebatch_wi_t* rocksdb_writebatch_wi_create_with_params(
   b->rep = new WriteBatchWithIndex(backup_index_comparator, reserved_bytes,
                                    overwrite_key, max_bytes,
                                    protection_bytes_per_key);
+  b->write_batch = new rocksdb_writebatch_t(b->rep->GetWriteBatch());
   return b;
 }
 
@@ -3349,6 +3446,7 @@ void rocksdb_writebatch_wi_update_timestamps(
 }
 
 void rocksdb_writebatch_wi_destroy(rocksdb_writebatch_wi_t* b) {
+  delete b->write_batch;
   if (b->rep) {
     delete b->rep;
   }
@@ -3587,6 +3685,11 @@ const char* rocksdb_writebatch_wi_data(rocksdb_writebatch_wi_t* b,
 
 size_t rocksdb_writebatch_wi_get_data_size(rocksdb_writebatch_wi_t* b) {
   return b->rep->GetDataSize();
+}
+
+rocksdb_writebatch_t* rocksdb_writebatch_wi_get_write_batch(
+    rocksdb_writebatch_wi_t* b) {
+  return b->write_batch;
 }
 
 void rocksdb_writebatch_wi_set_save_point(rocksdb_writebatch_wi_t* b) {
@@ -7415,6 +7518,17 @@ unsigned char rocksdb_import_column_family_options_get_move_files(
   return static_cast<unsigned char>(opt->rep.move_files);
 }
 
+const char* rocksdb_export_import_files_metadata_get_db_comparator_name(
+    const rocksdb_export_import_files_metadata_t* metadata) {
+  return strdup(metadata->rep->db_comparator_name.c_str());
+}
+
+void rocksdb_export_import_files_metadata_destroy(
+    rocksdb_export_import_files_metadata_t* metadata) {
+  delete metadata->rep;
+  delete metadata;
+}
+
 rocksdb_loaded_cf_options_t* rocksdb_optionsutil_load_latest_options(
     const rocksdb_configoptions_t* config, const char* db_path,
     rocksdb_options_t* db_options, char** errptr) {
@@ -9788,6 +9902,59 @@ rocksdb_pinnableslice_t* rocksdb_get_pinned_cf(
     return nullptr;
   }
   return v;
+}
+
+unsigned char rocksdb_get_into_buffer(rocksdb_t* db,
+                                      const rocksdb_readoptions_t* options,
+                                      const char* key, size_t keylen,
+                                      char* value, size_t value_capacity,
+                                      size_t* vallen, unsigned char* found,
+                                      char** errptr) {
+  PinnableSlice pinned;
+  Status s = db->rep->Get(options->rep, db->rep->DefaultColumnFamily(),
+                          Slice(key, keylen), &pinned);
+  if (!s.ok()) {
+    *vallen = 0;
+    *found = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+    return 0;
+  }
+
+  *found = 1;
+  *vallen = pinned.size();
+  if (pinned.size() > value_capacity) {
+    return 0;
+  }
+  memcpy(value, pinned.data(), pinned.size());
+  return 1;
+}
+
+unsigned char rocksdb_get_into_buffer_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char* value, size_t value_capacity, size_t* vallen,
+    unsigned char* found, char** errptr) {
+  PinnableSlice pinned;
+  Status s =
+      db->rep->Get(options->rep, column_family->rep, Slice(key, keylen), &pinned);
+  if (!s.ok()) {
+    *vallen = 0;
+    *found = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+    return 0;
+  }
+
+  *found = 1;
+  *vallen = pinned.size();
+  if (pinned.size() > value_capacity) {
+    return 0;
+  }
+  memcpy(value, pinned.data(), pinned.size());
+  return 1;
 }
 
 void rocksdb_pinnableslice_destroy(rocksdb_pinnableslice_t* v) { delete v; }
