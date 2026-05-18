@@ -1577,36 +1577,46 @@ class JniUtil {
      *     occurs and the JNIEnv cannot be retrieved
      */
     static JNIEnv* getJniEnv(JavaVM* jvm, jboolean* attached) {
-      assert(jvm != nullptr);
+    assert(jvm != nullptr);
 
-      JNIEnv *env;
-      const jint env_rs = jvm->GetEnv(reinterpret_cast<void**>(&env),
-          JNI_VERSION_1_6);
+    JNIEnv* env;
+    const jint env_rs =
+        jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
 
-      if(env_rs == JNI_OK) {
-        // current thread is already attached, return the JNIEnv
-        *attached = JNI_FALSE;
+    if (env_rs == JNI_OK) {
+      // current thread is already attached, return the JNIEnv
+      *attached = JNI_FALSE;
+      return env;
+    } else if (env_rs == JNI_EDETACHED) {
+      // current thread is not attached, attempt to attach
+#ifdef OS_ANDROID
+      const jint rs_attach = jvm->AttachCurrentThread(&env, nullptr);
+#else
+      const jint rs_attach =
+          jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr);
+#endif
+      if (rs_attach == JNI_OK) {
+        *attached = JNI_TRUE;
         return env;
-      } else if(env_rs == JNI_EDETACHED) {
-        // current thread is not attached, attempt to attach
-        const jint rs_attach = jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
-        if(rs_attach == JNI_OK) {
-          *attached = JNI_TRUE;
-          return env;
-        } else {
-          // error, could not attach the thread
-          std::cerr << "JniUtil::getJniEnv - Fatal: could not attach current thread to JVM!" << std::endl;
-          return nullptr;
-        }
-      } else if(env_rs == JNI_EVERSION) {
-        // error, JDK does not support JNI_VERSION_1_6+
-        std::cerr << "JniUtil::getJniEnv - Fatal: JDK does not support JNI_VERSION_1_6" << std::endl;
-        return nullptr;
       } else {
-        std::cerr << "JniUtil::getJniEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
+        // error, could not attach the thread
+        std::cerr << "JniUtil::getJniEnv - Fatal: could not attach current "
+                     "thread to JVM!"
+                  << std::endl;
         return nullptr;
       }
+    } else if (env_rs == JNI_EVERSION) {
+      // error, JDK does not support JNI_VERSION_1_6+
+      std::cerr
+          << "JniUtil::getJniEnv - Fatal: JDK does not support JNI_VERSION_1_6"
+          << std::endl;
+      return nullptr;
+    } else {
+      std::cerr << "JniUtil::getJniEnv - Fatal: Unknown error: env_rs="
+                << env_rs << std::endl;
+      return nullptr;
     }
+  }
 
     /**
      * Counterpart to {@link JniUtil::getJniEnv(JavaVM*, jboolean*)}
