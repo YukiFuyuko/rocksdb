@@ -79,8 +79,8 @@ jobs:
         set -euxo pipefail
         sudo apt-get update
         sudo apt-get install -y cmake ninja-build zip unzip
+
         android_sdk_root="${ANDROID_HOME:-${RUNNER_TEMP}/android-sdk}"
-        echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
         commandline_tools_version="11076708"
         commandline_tools_zip="commandlinetools-linux-${commandline_tools_version}_latest.zip"
         mkdir -p "${android_sdk_root}/cmdline-tools"
