@@ -1,0 +1,217 @@
+name: facebook/rocksdb/android-rocksdbjni
+on:
+  push:
+    paths:
+    - '.github/workflows/android-rocksdbjni.yml'
+    - 'CMakeLists.txt'
+    - 'cmake/**'
+    - 'include/**'
+    - 'java/**'
+    - 'port/**'
+    - 'table/**'
+    - 'utilities/**'
+    - 'util/**'
+    - 'db/**'
+    - 'env/**'
+    - 'file/**'
+    - 'memtable/**'
+    - 'monitoring/**'
+    - 'options/**'
+    - 'plugin/**'
+    - 'trace_replay/**'
+    - 'transactions/**'
+  pull_request:
+    paths:
+    - '.github/workflows/android-rocksdbjni.yml'
+    - 'CMakeLists.txt'
+    - 'cmake/**'
+    - 'include/**'
+    - 'java/**'
+    - 'port/**'
+    - 'table/**'
+    - 'utilities/**'
+    - 'util/**'
+    - 'db/**'
+    - 'env/**'
+    - 'file/**'
+    - 'memtable/**'
+    - 'monitoring/**'
+    - 'options/**'
+    - 'plugin/**'
+    - 'trace_replay/**'
+    - 'transactions/**'
+  workflow_dispatch:
+    inputs:
+      android_platform:
+        description: Android API level used for the NDK build.
+        required: false
+        default: android-23
+permissions: {}
+env:
+  ANDROID_NDK_VERSION: 27.2.12479018
+  ANDROID_PLATFORM: ${{ inputs.android_platform || 'android-23' }}
+  BUILD_TYPE: Release
+jobs:
+  build-android-abi:
+    name: Build Android ${{ matrix.android_abi }} rocksdbjni
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - android_abi: armeabi-v7a
+          artifact_abi: armeabi-v7a
+        - android_abi: arm64-v8a
+          artifact_abi: arm64-v8a
+        - android_abi: x86
+          artifact_abi: x86
+        - android_abi: x86_64
+          artifact_abi: x86_64
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - name: Install Android build tools
+      run: |-
+        set -euxo pipefail
+        sudo apt-get update
+        sudo apt-get install -y cmake ninja-build zip unzip
+        android_sdk_root="${ANDROID_HOME:-${RUNNER_TEMP}/android-sdk}"
+        echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+        commandline_tools_version="11076708"
+        commandline_tools_zip="commandlinetools-linux-${commandline_tools_version}_latest.zip"
+        mkdir -p "${android_sdk_root}/cmdline-tools"
+        curl -fsSLo "${RUNNER_TEMP}/${commandline_tools_zip}" \
+          "https://dl.google.com/android/repository/${commandline_tools_zip}"
+        unzip -q "${RUNNER_TEMP}/${commandline_tools_zip}" -d "${android_sdk_root}/cmdline-tools"
+        rm -rf "${android_sdk_root}/cmdline-tools/latest"
+        mv "${android_sdk_root}/cmdline-tools/cmdline-tools" \
+          "${android_sdk_root}/cmdline-tools/latest"
+
+        sdkmanager_bin="${android_sdk_root}/cmdline-tools/latest/bin/sdkmanager"
+        set +o pipefail
+        yes | "${sdkmanager_bin}" --sdk_root="${android_sdk_root}" --licenses >/dev/null
+        sdkmanager_status="${PIPESTATUS[1]}"
+        set -o pipefail
+        if [ "${sdkmanager_status}" -ne 0 ]; then
+          exit "${sdkmanager_status}"
+        fi
+        "${sdkmanager_bin}" --sdk_root="${android_sdk_root}" \
+          "ndk;${ANDROID_NDK_VERSION}"
+
+        echo "ANDROID_HOME=${android_sdk_root}" >> "$GITHUB_ENV"
+        echo "ANDROID_SDK_ROOT=${android_sdk_root}" >> "$GITHUB_ENV"
+        echo "ANDROID_NDK_HOME=${android_sdk_root}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+        echo "${android_sdk_root}/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+    - name: Configure rocksdbjni for Android
+      run: |-
+        set -euxo pipefail
+        cmake -S . -B "build/android-${{ matrix.android_abi }}" -G Ninja \
+          -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+          -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+          -DANDROID_ABI="${{ matrix.android_abi }}" \
+          -DANDROID_PLATFORM="${ANDROID_PLATFORM}" \
+          -DANDROID_STL=c++_static \
+          -DJNI=ON \
+          -DWITH_BENCHMARK_TOOLS=OFF \
+          -DWITH_CORE_TOOLS=OFF \
+          -DWITH_GFLAGS=OFF \
+          -DWITH_TESTS=OFF \
+          -DFAIL_ON_WARNINGS=OFF
+    - name: Build rocksdbjni native library
+      run: |-
+        set -euxo pipefail
+        cmake --build "build/android-${{ matrix.android_abi }}" --target rocksdbjni --parallel "$(nproc)"
+    - name: Stage ABI artifact
+      run: |-
+        set -euxo pipefail
+        stage_dir="android-artifacts/${{ matrix.artifact_abi }}"
+        mkdir -p "$stage_dir"
+
+        native_lib="$(find "build/android-${{ matrix.android_abi }}" -type f -name 'librocksdbjni*.so' | head -n 1)"
+        test -n "$native_lib"
+        cp "$native_lib" "$stage_dir/librocksdbjni.so"
+
+        classes_jar="$(find "build/android-${{ matrix.android_abi }}/java" -maxdepth 1 -type f -name '*.jar' ! -name '*test*' | head -n 1)"
+        test -n "$classes_jar"
+        cp "$classes_jar" "$stage_dir/classes.jar"
+
+        file "$stage_dir/librocksdbjni.so"
+        jar tf "$stage_dir/classes.jar" | grep '^org/rocksdb/RocksDB.class$'
+    - name: Upload ABI artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: rocksdbjni-android-${{ matrix.artifact_abi }}
+        path: android-artifacts/${{ matrix.artifact_abi }}
+        if-no-files-found: error
+  package-android:
+    name: Package Android rocksdbjni AAR
+    runs-on: ubuntu-24.04
+    needs: build-android-abi
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - name: Download ABI artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: rocksdbjni-android-*
+        path: downloaded-abis
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - name: Build Maven-style Android package
+      run: |-
+        set -euxo pipefail
+        version="$(awk '/#define ROCKSDB_MAJOR/{major=$3} /#define ROCKSDB_MINOR/{minor=$3} /#define ROCKSDB_PATCH/{patch=$3} END{print major "." minor "." patch}' include/rocksdb/version.h)"
+        package_dir="android-package"
+        aar_dir="${package_dir}/aar"
+        maven_dir="${package_dir}/maven/org/rocksdb/rocksdbjni/${version}"
+        mkdir -p "$aar_dir/jni" "$maven_dir"
+
+        for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+          mkdir -p "$aar_dir/jni/$abi"
+          cp "downloaded-abis/rocksdbjni-android-$abi/librocksdbjni.so" "$aar_dir/jni/$abi/librocksdbjni.so"
+        done
+        cp downloaded-abis/rocksdbjni-android-arm64-v8a/classes.jar "$aar_dir/classes.jar"
+        cat > "$aar_dir/AndroidManifest.xml" <<'EOF'
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+        EOF
+
+        aar_file="${maven_dir}/rocksdbjni-${version}.aar"
+        (cd "$aar_dir" && zip -r "${GITHUB_WORKSPACE}/${aar_file}" AndroidManifest.xml classes.jar jni)
+        cat > "${maven_dir}/rocksdbjni-${version}.pom" <<EOF
+        <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+          <modelVersion>4.0.0</modelVersion>
+          <groupId>org.rocksdb</groupId>
+          <artifactId>rocksdbjni</artifactId>
+          <version>${version}</version>
+          <packaging>aar</packaging>
+          <name>RocksDB JNI Android</name>
+          <description>RocksDB Java API and native Android libraries for armeabi-v7a, arm64-v8a, x86, and x86_64.</description>
+          <url>https://rocksdb.org/</url>
+          <licenses>
+            <license>
+              <name>Apache License, Version 2.0</name>
+              <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            </license>
+            <license>
+              <name>GNU General Public License, version 2</name>
+              <url>https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html</url>
+            </license>
+          </licenses>
+        </project>
+        EOF
+
+        sha1sum "$aar_file" > "${aar_file}.sha1"
+        sha256sum "$aar_file" > "${aar_file}.sha256"
+        jar tf "$aar_file" | sort
+    - name: Upload Android package
+      uses: actions/upload-artifact@v4
+      with:
+        name: rocksdbjni-android-maven-package
+        path: android-package
+        if-no-files-found: error
