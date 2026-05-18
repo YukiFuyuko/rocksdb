@@ -124,7 +124,7 @@ jobs:
     - name: Build rocksdbjni native library
       run: |-
         set -euxo pipefail
-        cmake --build "build/android-${{ matrix.android_abi }}" --target rocksdbjni --parallel "$(nproc)"
+        cmake --build "build/android-${{ matrix.android_abi }}" --target rocksdbjni-shared --parallel "$(nproc)"
     - name: Stage ABI artifact
       run: |-
         set -euxo pipefail
