@@ -50,7 +50,7 @@ permissions: {}
 env:
   ANDROID_NDK_VERSION: 27.1.12297006
   ANDROID_PLATFORM: ${{ inputs.android_platform || 'android-23' }}
-  BUILD_TYPE: Release
+  BUILD_TYPE: MinSizeRel
 jobs:
   build-android-abi:
     name: Build Android ${{ matrix.android_abi }} rocksdbjni
@@ -133,7 +133,15 @@ jobs:
 
         native_lib="$(find "build/android-${{ matrix.android_abi }}" -type f -name 'librocksdbjni*.so' | head -n 1)"
         test -n "$native_lib"
+        unstripped_size="$(stat -c %s "$native_lib")"
         cp "$native_lib" "$stage_dir/librocksdbjni.so"
+
+        strip_bin="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+        "$strip_bin" --strip-unneeded "$stage_dir/librocksdbjni.so"
+        stripped_size="$(stat -c %s "$stage_dir/librocksdbjni.so")"
+        test "$stripped_size" -le "$unstripped_size"
+        printf 'Stripped librocksdbjni.so from %s to %s bytes\n' \
+          "$unstripped_size" "$stripped_size"
 
         classes_jar="$(find "build/android-${{ matrix.android_abi }}/java" -maxdepth 1 -type f -name '*.jar' ! -name '*test*' | head -n 1)"
         test -n "$classes_jar"
