@@ -48,7 +48,7 @@ on:
         default: android-23
 permissions: {}
 env:
-  ANDROID_NDK_VERSION: 27.2.12479018
+  ANDROID_NDK_VERSION: 27.1.12297006
   ANDROID_PLATFORM: ${{ inputs.android_platform || 'android-23' }}
   BUILD_TYPE: Release
 jobs:
