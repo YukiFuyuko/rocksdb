@@ -566,7 +566,7 @@ std::string IsFastCrc32Supported() {
  * This version is from the folly library, created by Dave Watson <davejwatson@fb.com>
  *
 */
-#if defined HAVE_SSE42 && defined HAVE_PCLMUL
+#if defined(HAVE_SSE42) && defined(HAVE_PCLMUL) && (defined(__x86_64__) || defined(_M_X64))
 
 #define CRCtriplet(crc, buf, offset)                  \
   crc##0 = _mm_crc32_u64(crc##0, *(buf##0 + offset)); \
@@ -1242,7 +1242,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
   }
 }
 
-#endif //HAVE_SSE42 && HAVE_PCLMUL
+#endif // HAVE_SSE42 && HAVE_PCLMUL && 64-bit _mm_crc32_u64-capable target
 
 static inline Function Choose_Extend() {
 #ifdef HAVE_POWER8
