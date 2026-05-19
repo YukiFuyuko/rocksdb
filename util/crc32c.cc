@@ -1257,7 +1257,7 @@ static inline Function Choose_Extend() {
 #else
   if (isSSE42()) {
     if (isPCLMULQDQ()) {
-#if defined HAVE_SSE42  && defined HAVE_PCLMUL && !defined NO_THREEWAY_CRC32C
+#if defined(HAVE_SSE42) && defined(HAVE_PCLMUL) && !defined(NO_THREEWAY_CRC32C) && (defined(__x86_64__) || defined(_M_X64))
       return crc32c_3way;
 #else
     return ExtendImpl<Fast_CRC32>; // Fast_CRC32 will check HAVE_SSE42 itself
