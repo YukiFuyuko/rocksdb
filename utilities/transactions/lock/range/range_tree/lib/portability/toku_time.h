@@ -134,7 +134,10 @@ static inline tokutime_t toku_time_now(void) {
 #elif defined(__powerpc__)
   return __ppc_get_timebase();
 #else
-#error No timer implementation for this platform
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL +
+         static_cast<uint64_t>(ts.tv_nsec);
 #endif
 }
 
