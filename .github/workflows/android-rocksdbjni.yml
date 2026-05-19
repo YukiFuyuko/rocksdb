@@ -116,6 +116,7 @@ jobs:
           -DANDROID_PLATFORM="${ANDROID_PLATFORM}" \
           -DANDROID_STL=c++_static \
           -DJNI=ON \
+          -DPORTABLE=ON \
           -DWITH_BENCHMARK_TOOLS=OFF \
           -DWITH_CORE_TOOLS=OFF \
           -DWITH_GFLAGS=OFF \
